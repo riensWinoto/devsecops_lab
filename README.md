@@ -1,2 +1,57 @@
 # devsecops_lab
-End-to-end DevSecOps lab covering infrastructure as code, security gates, and application deployment using LocalStack as the local AWS emulator.
+End-to-end DevSecOps lab covering infrastructure as code, security gates, and application deployment using MiniStack as the local AWS emulator.
+
+---
+
+## Prerequisites
+- Docker
+- Terraform
+- AWS CLI
+
+---
+
+## Setup
+
+### Environment Variables
+`.env.example` contains all required variables with placeholder values. Values should be updated to match the target environment before running any commands.
+
+```bash
+cp .env.example .env
+```
+
+The `.env` file must be sourced before running Terraform commands:
+```bash
+source .env
+```
+
+### AWS CLI
+The following alias is used to interact with MiniStack using the AWS CLI:
+```bash
+alias minstack='docker run --network devsecops_lab_ministack -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_REGION=ap-southeast-2 --rm -it amazon/aws-cli --endpoint-url=http://ministack:4566'
+```
+
+> **Note:** MiniStack must be running before the alias can be used.
+
+Example usage:
+```bash
+minstack s3 ls
+minstack s3 ls s3://devsecops-lab/
+```
+
+### MiniStack
+MiniStack is started using Docker Compose:
+```bash
+docker compose up -d
+```
+
+Once MiniStack is running, the state bucket must be created before initializing Terraform:
+```bash
+minstack s3 mb s3://devsecops-lab
+```
+
+### Terraform
+Each environment must be initialized separately:
+```bash
+cd terraform/environments/dev && terraform init
+cd terraform/environments/staging && terraform init
+```
