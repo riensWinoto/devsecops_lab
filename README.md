@@ -55,3 +55,33 @@ Each environment must be initialized separately:
 cd terraform/environments/dev && terraform init
 cd terraform/environments/staging && terraform init
 ```
+
+---
+
+## Infrastructure
+
+### Resources
+Each environment provisions the following resources:
+
+| Resource | Name | Description |
+|---|---|---|
+| S3 Bucket | `<environment>-raw-data-<account_id>` | Ingestion of raw financial data |
+| S3 Bucket | `<environment>-processed-data-<account_id>` | Storage of processed financial data |
+| EC2 Instance | `<environment>-data-processor` | Reads raw data, writes processed data |
+| EC2 Instance | `<environment>-audit-server` | Read-only access to both buckets for auditing |
+| IAM User | `<environment>-platform-admin` | Platform administration — no direct data access |
+
+### Usage
+Provision an environment:
+```bash
+cd terraform/environments/<environment>
+terraform apply
+```
+
+Destroy an environment:
+```bash
+cd terraform/environments/<environment>
+terraform destroy
+```
+
+Both environments are independent and can be provisioned or destroyed separately.
