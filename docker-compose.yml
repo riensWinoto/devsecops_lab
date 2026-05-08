@@ -2,6 +2,7 @@ services:
   ministack:
     container_name: "ministack"
     image: ministackorg/ministack:1.3.28-full
+    restart: unless-stopped
     ports:
       - "4566:4566"
     env_file:
