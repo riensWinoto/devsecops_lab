@@ -20,35 +20,34 @@ locals {
 }
 
 #========== Bucket ==========
-resource "aws_s3_bucket" "bucket" {
-  for_each = var.bucket_info
+module "bucket" {
+  source = "../../modules/s3"
 
-  bucket = "${local.environment}-${each.value.name}-${local.account_id}"
-  tags   = merge(local.env_tags, each.value.tags)
-}
-
-resource "aws_s3_bucket_versioning" "bucket_versioning" {
-  for_each = aws_s3_bucket.bucket
-
-  bucket = each.value.id
-  versioning_configuration {
-    status = var.bucket_info[each.key]["versioning"] ? "Enabled" : "Disabled"
-  }
+  for_each           = var.bucket_info
+  bucket_name        = "${each.value.name}-${local.account_id}"
+  versioning_enabled = each.value.versioning
+  environment        = local.environment
+  tags               = each.value.tags
 }
 
 #========== Instance ==========
-resource "aws_instance" "instance" {
-  for_each = var.ec2_instance_info
+module "instance" {
+  source = "../../modules/ec2"
 
-  ami           = local.os
+  for_each      = var.ec2_instance_info
+  instance_name = each.value.name
   instance_type = each.value.machine
-  tags          = merge(local.env_tags, { Name = "${local.environment}-${each.value.name}" }, each.value.tags)
+  ami           = local.os
+  environment   = local.environment
+  tags          = each.value.tags
 }
 
 #========== IAM ==========
-resource "aws_iam_user" "user" {
-  for_each = var.iam_info
+module "iam" {
+  source = "../../modules/iam"
 
-  name = "${local.environment}-${each.value.name}"
-  tags = merge(local.env_tags, each.value.tags)
+  for_each    = var.iam_info
+  username    = each.value.name
+  environment = local.environment
+  tags        = each.value.tags
 }
