@@ -67,9 +67,23 @@ Each environment provisions the following resources:
 |---|---|---|
 | S3 Bucket | `<environment>-raw-data-<account_id>` | Ingestion of raw financial data |
 | S3 Bucket | `<environment>-processed-data-<account_id>` | Storage of processed financial data |
-| EC2 Instance | `<environment>-data-processor` | Reads raw data, writes processed data |
+| EC2 Instance | `<environment>-data-processor` | Reads raw data and writes processed data |
 | EC2 Instance | `<environment>-audit-server` | Read-only access to both buckets for auditing |
-| IAM User | `<environment>-platform-admin` | Platform administration — no direct data access |
+| IAM User | `<environment>-platform-admin` | Platform administration with no direct data access |
+
+### Modules
+Resources are provisioned through reusable modules located under `terraform/modules/`:
+
+| Module | Description |
+|---|---|
+| `s3` | S3 bucket with versioning support |
+| `ec2` | EC2 instance with configurable type and AMI |
+| `iam` | IAM user with environment-scoped naming |
+
+### Environment Separation
+Directory-based environment separation is used instead of Terraform workspaces. Each environment has its own backend configuration, variable definitions, and state file to ensure strict isolation and prevent accidental cross-environment operations.
+
+Workspaces are not suitable for this use case as they share a backend configuration and do not provide true environment isolation.
 
 ### Usage
 Provision an environment:
