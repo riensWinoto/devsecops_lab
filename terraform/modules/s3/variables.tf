@@ -24,6 +24,11 @@ variable "versioning_enabled" {
   default     = false
 }
 
+variable "kms_key_id" {
+  type        = string
+  description = "KMS key for encryption"
+}
+
 variable "tags" {
   type        = map(string)
   description = "tags for resources"
