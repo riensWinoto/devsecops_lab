@@ -19,6 +19,12 @@ locals {
   os         = data.aws_ami.amazon_linux_2.image_id
 }
 
+#========== KMS ==========
+module "kms" {
+  source      = "../../modules/kms"
+  environment = local.environment
+}
+
 #========== Bucket ==========
 module "bucket" {
   source = "../../modules/s3"
@@ -26,6 +32,7 @@ module "bucket" {
   for_each           = var.bucket_info
   bucket_name        = "${each.value.name}-${local.account_id}"
   versioning_enabled = each.value.versioning
+  kms_key_id         = module.kms.key_id
   environment        = local.environment
   tags               = each.value.tags
 }
@@ -38,6 +45,7 @@ module "instance" {
   instance_name = each.value.name
   instance_type = each.value.machine
   ami           = local.os
+  kms_key_id    = module.kms.key_id
   environment   = local.environment
   tags          = each.value.tags
 }
