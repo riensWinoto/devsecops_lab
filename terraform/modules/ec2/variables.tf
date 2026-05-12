@@ -29,6 +29,11 @@ variable "ami" {
   description = "OS for EC2"
 }
 
+variable "kms_key_id" {
+  type        = string
+  description = "KMS key for encryption"
+}
+
 variable "tags" {
   type        = map(string)
   description = "tags for resources"
