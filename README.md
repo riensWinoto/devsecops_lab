@@ -65,6 +65,7 @@ Each environment provisions the following resources:
 
 | Resource | Name | Description |
 |---|---|---|
+| KMS Key | `alias/<environment>-data-platform` | Encryption key for all environment resources |
 | S3 Bucket | `<environment>-raw-data-<account_id>` | Ingestion of raw financial data |
 | S3 Bucket | `<environment>-processed-data-<account_id>` | Storage of processed financial data |
 | EC2 Instance | `<environment>-data-processor` | Reads raw data and writes processed data |
@@ -76,9 +77,13 @@ Resources are provisioned through reusable modules located under `terraform/modu
 
 | Module | Description |
 |---|---|
-| `s3` | S3 bucket with versioning support |
-| `ec2` | EC2 instance with configurable type and AMI |
+| `kms` | KMS key with rotation enabled and environment-scoped alias |
+| `s3` | S3 bucket with versioning, server side encryption, and bucket policy enforcement |
+| `ec2` | EC2 instance with encrypted root volume |
 | `iam` | IAM user with environment-scoped naming |
+
+### Encryption
+Each environment provisions a dedicated KMS key used to encrypt all applicable resources. S3 buckets enforce server side encryption using the environment KMS key and deny any request not using HTTPS or unencrypted uploads via bucket policy. EC2 root volumes are encrypted using the same environment KMS key with 20GB gp3 configuration.
 
 ### Environment Separation
 Directory-based environment separation is used instead of Terraform workspaces. Each environment has its own backend configuration, variable definitions, and state file to ensure strict isolation and prevent accidental cross-environment operations.
