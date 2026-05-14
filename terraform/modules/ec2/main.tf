@@ -10,4 +10,15 @@ resource "aws_instance" "instance" {
     encrypted   = true
     kms_key_id  = var.kms_key_id
   }
+
+  user_data = var.secret_arn != null ? (<<-EOF
+#!/bin/bash
+ENV_DIR=/opt/app
+mkdir -p $ENV_DIR
+aws secretsmanager get-secret-value --secret-id ${var.secret_arn} \
+--query SecretString \
+--output text > $ENV_DIR/db.env
+chmod 600 $ENV_DIR/db.env
+EOF
+  ) : null
 }

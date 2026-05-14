@@ -34,6 +34,12 @@ variable "kms_key_id" {
   description = "KMS key for encryption"
 }
 
+variable "secret_arn" {
+  type        = string
+  description = "Secret ARN"
+  nullable    = true
+}
+
 variable "tags" {
   type        = map(string)
   description = "tags for resources"
