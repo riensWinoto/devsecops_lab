@@ -71,6 +71,7 @@ Each environment provisions the following resources:
 | EC2 Instance | `<environment>-data-processor` | Reads raw data and writes processed data |
 | EC2 Instance | `<environment>-audit-server` | Read-only access to both buckets for auditing |
 | IAM User | `<environment>-platform-admin` | Platform administration with no direct data access |
+| Secrets Manager Secret | `<environment>-data-processor-db-password` | Database password for data-processor, encrypted with environment KMS key |
 
 ### Modules
 Resources are provisioned through reusable modules located under `terraform/modules/`:
@@ -79,11 +80,17 @@ Resources are provisioned through reusable modules located under `terraform/modu
 |---|---|
 | `kms` | KMS key with rotation enabled and environment-scoped alias |
 | `s3` | S3 bucket with versioning, server side encryption, and bucket policy enforcement |
-| `ec2` | EC2 instance with encrypted root volume |
+| `ec2` | EC2 instance with encrypted root volume and optional secret retrieval on boot |
 | `iam` | IAM user with environment-scoped naming |
+| `secrets` | Secrets Manager secret with ephemeral password generation and KMS encryption |
 
 ### Encryption
 Each environment provisions a dedicated KMS key used to encrypt all applicable resources. S3 buckets enforce server side encryption using the environment KMS key and deny any request not using HTTPS or unencrypted uploads via bucket policy. EC2 root volumes are encrypted using the same environment KMS key with 20GB gp3 configuration.
+
+### Ephemeral Resources
+The database password for `data-processor` is generated using an ephemeral resource and stored in Secrets Manager using a write-only attribute. The password is never persisted to Terraform state. The secret is encrypted with the environment KMS key.
+
+The `data-processor` instance retrieves the secret at boot via user data and writes it to `/opt/app/db.env`. The `audit-server` has no secret requirement and does not receive a secret ARN.
 
 ### Environment Separation
 Directory-based environment separation is used instead of Terraform workspaces. Each environment has its own backend configuration, variable definitions, and state file to ensure strict isolation and prevent accidental cross-environment operations.
