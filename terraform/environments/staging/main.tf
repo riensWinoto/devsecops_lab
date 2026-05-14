@@ -25,6 +25,13 @@ module "kms" {
   environment = local.environment
 }
 
+#========== Secret Manager ==========
+module "secret" {
+  source      = "../../modules/secrets"
+  environment = local.environment
+  kms_key_id  = module.kms.key_id
+}
+
 #========== Bucket ==========
 module "bucket" {
   source = "../../modules/s3"
@@ -46,6 +53,7 @@ module "instance" {
   instance_type = each.value.machine
   ami           = local.os
   kms_key_id    = module.kms.key_id
+  secret_arn    = each.value.name == "data-processor" ? module.secret.secret_arn : null
   environment   = local.environment
   tags          = each.value.tags
 }
