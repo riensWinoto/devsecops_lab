@@ -71,6 +71,9 @@ Each environment provisions the following resources:
 | EC2 Instance | `<environment>-data-processor` | Reads raw data and writes processed data |
 | EC2 Instance | `<environment>-audit-server` | Read-only access to both buckets for auditing |
 | IAM User | `<environment>-platform-admin` | Platform administration with no direct data access |
+| IAM Role | `<environment>-data-processor-role` | Least privilege role for data-processor instance |
+| IAM Role | `<environment>-audit-server-role` | Read-only role for audit-server instance |
+| IAM Policy | `<environment>-platform-admin-policy` | Admin policy with explicit data access denials |
 | Secrets Manager Secret | `<environment>-data-processor-db-password` | Database password for data-processor, encrypted with environment KMS key |
 
 ### Modules
@@ -80,8 +83,9 @@ Resources are provisioned through reusable modules located under `terraform/modu
 |---|---|
 | `kms` | KMS key with rotation enabled and environment-scoped alias |
 | `s3` | S3 bucket with versioning, server side encryption, and bucket policy enforcement |
-| `ec2` | EC2 instance with encrypted root volume and optional secret retrieval on boot |
+| `ec2` | EC2 instance with encrypted root volume, optional secret retrieval on boot, and instance profile attachment |
 | `iam` | IAM user with environment-scoped naming |
+| `iam_role` | IAM role with inline policy, instance profile, and EC2 trust policy |
 | `secrets` | Secrets Manager secret with ephemeral password generation and KMS encryption |
 
 ### Encryption
@@ -91,6 +95,17 @@ Each environment provisions a dedicated KMS key used to encrypt all applicable r
 The database password for `data-processor` is generated using an ephemeral resource and stored in Secrets Manager using a write-only attribute. The password is never persisted to Terraform state. The secret is encrypted with the environment KMS key.
 
 The `data-processor` instance retrieves the secret at boot via user data and writes it to `/opt/app/db.env`. The `audit-server` has no secret requirement and does not receive a secret ARN.
+
+### Identity & Access
+Each EC2 instance is assigned a dedicated IAM role via an instance profile, following least privilege principles. Policy documents are rendered from template files and scoped to environment-specific resources only.
+
+The `data-processor-role` is permitted to read from the raw data bucket, write to the processed data bucket, decrypt using the environment KMS key, and retrieve the database secret. Cross-environment S3 access is explicitly denied via a `NotResource` deny statement.
+
+The `audit-server-role` is permitted to read from both buckets and decrypt using the environment KMS key. Write and delete operations are explicitly denied across all buckets.
+
+The `platform-admin-policy` grants KMS key management and Secrets Manager administration permissions. Direct data access via `kms:Decrypt`, `s3:GetObject`, `s3:PutObject`, and `secretsmanager:GetSecretValue` is explicitly denied. The policy is attached to the `platform-admin` IAM user.
+
+The KMS key policy enforces the access matrix at the key level, independently of IAM policies. The root account retains full key access to prevent lockout.
 
 ### Environment Separation
 Directory-based environment separation is used instead of Terraform workspaces. Each environment has its own backend configuration, variable definitions, and state file to ensure strict isolation and prevent accidental cross-environment operations.
