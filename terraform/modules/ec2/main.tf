@@ -11,6 +11,7 @@ resource "aws_instance" "instance" {
     kms_key_id  = var.kms_key_id
   }
 
+  iam_instance_profile = var.instance_profile_name
   user_data = var.secret_arn != null ? (<<-EOF
 #!/bin/bash
 ENV_DIR=/opt/app

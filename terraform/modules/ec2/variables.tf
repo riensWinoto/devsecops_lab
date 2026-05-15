@@ -44,3 +44,9 @@ variable "tags" {
   type        = map(string)
   description = "tags for resources"
 }
+
+variable "instance_profile_name" {
+  type        = string
+  description = "instance profile name"
+  nullable    = true
+}
