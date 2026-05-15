@@ -48,14 +48,15 @@ module "bucket" {
 module "instance" {
   source = "../../modules/ec2"
 
-  for_each      = var.ec2_instance_info
-  instance_name = each.value.name
-  instance_type = each.value.machine
-  ami           = local.os
-  kms_key_id    = module.kms.key_id
-  secret_arn    = each.value.name == "data-processor" ? module.secret.secret_arn : null
-  environment   = local.environment
-  tags          = each.value.tags
+  for_each             = var.ec2_instance_info
+  instance_name        = each.value.name
+  instance_type        = each.value.machine
+  ami                  = local.os
+  kms_key_id           = module.kms.key_id
+  secret_arn           = each.value.name == "data-processor" ? module.secret.secret_arn : null
+  instance_profile_name = module.iam_role[each.key].instance_profile_name
+  environment          = local.environment
+  tags                 = each.value.tags
 }
 
 #========== IAM ==========
@@ -66,4 +67,57 @@ module "iam" {
   username    = each.value.name
   environment = local.environment
   tags        = each.value.tags
+}
+
+#========== IAM Role ==========
+module "iam_role" {
+  source = "../../modules/iam_role"
+
+  for_each    = var.ec2_instance_info
+  role_name   = each.value.name
+  environment = local.environment
+  policy_json = templatefile("../../policies/${each.value.name}-role.json.tpl",
+    each.value.name == "data-processor" ?
+    (
+      {
+        raw_data_bucket_arn       = module.bucket["raw-data"].bucket_arn
+        processed_data_bucket_arn = module.bucket["processed-data"].bucket_arn
+        kms_key_arn               = module.kms.key_arn
+        secret_arn                = module.secret.secret_arn
+      }
+    ) :
+    (
+      {
+        raw_data_bucket_arn       = module.bucket["raw-data"].bucket_arn
+        processed_data_bucket_arn = module.bucket["processed-data"].bucket_arn
+        kms_key_arn               = module.kms.key_arn
+      }
+    )
+  )
+}
+
+resource "aws_kms_key_policy" "this" {
+  key_id = module.kms.key_id
+  policy = templatefile("../../policies/kms-key.json.tpl", {
+    account_id              = local.account_id
+    data_processor_role_arn = module.iam_role["data-processor"].role_arn
+    audit_server_role_arn   = module.iam_role["audit-server"].role_arn
+    platform_admin_user_arn = module.iam["platform-admin"].user_arn
+  })
+}
+
+resource "aws_iam_policy" "platform_admin" {
+  name = "${local.environment}-platform-admin-policy"
+  policy = templatefile("../../policies/platform-admin-user.json.tpl", {
+    account_id = local.account_id
+  })
+  tags = {
+    environment = local.environment
+    owner       = "data-platform"
+  }
+}
+
+resource "aws_iam_user_policy_attachment" "platform_admin" {
+  user       = module.iam["platform-admin"].user_name
+  policy_arn = aws_iam_policy.platform_admin.arn
 }
