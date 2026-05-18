@@ -3,6 +3,45 @@ End-to-end DevSecOps lab covering infrastructure as code, security gates, and ap
 
 ---
 
+## Architecture Overview
+
+![Architecture](docs/terraform-architecture.png)
+
+---
+
+## Repository Structure
+
+```
+terraform/
+├── environments
+│   ├── dev                   # dev environment — independent state and config
+│   │   ├── backend.tf
+│   │   ├── main.tf
+│   │   ├── terraform.tfvars
+│   │   └── variables.tf
+│   └── staging               # staging environment — independent state and config
+│       ├── backend.tf
+│       ├── main.tf
+│       ├── terraform.tfvars
+│       └── variables.tf
+├── modules
+│   ├── ec2                   # EC2 instance with encrypted volume and instance profile
+│   ├── iam                   # IAM user with environment-scoped naming
+│   ├── iam_role              # IAM role with instance profile and EC2 trust policy
+│   ├── kms                   # KMS key with rotation and environment alias
+│   ├── s3                    # S3 bucket with versioning, SSE, and bucket policy
+│   └── secrets               # Secrets Manager secret with ephemeral password
+└── policies
+    ├── audit-server-role.json.tpl
+    ├── data-processor-role.json.tpl
+    ├── kms-key.json.tpl
+    └── platform-admin-user.json.tpl
+```
+
+Each environment directory is self-contained with its own backend, variables, and state. Modules are environment-agnostic and accept an `environment` variable to scope all resource names and tags. Policy documents live in `terraform/policies/` as template files rendered at apply time via `templatefile()`.
+
+---
+
 ## Prerequisites
 - Docker
 - Terraform
@@ -85,27 +124,34 @@ Resources are provisioned through reusable modules located under `terraform/modu
 | `s3` | S3 bucket with versioning, server side encryption, and bucket policy enforcement |
 | `ec2` | EC2 instance with encrypted root volume, optional secret retrieval on boot, and instance profile attachment |
 | `iam` | IAM user with environment-scoped naming |
-| `iam_role` | IAM role with inline policy, instance profile, and EC2 trust policy |
+| `iam_role` | IAM role with inline permission policy, instance profile, and EC2 trust policy |
 | `secrets` | Secrets Manager secret with ephemeral password generation and KMS encryption |
 
 ### Encryption
-Each environment provisions a dedicated KMS key used to encrypt all applicable resources. S3 buckets enforce server side encryption using the environment KMS key and deny any request not using HTTPS or unencrypted uploads via bucket policy. EC2 root volumes are encrypted using the same environment KMS key with 20GB gp3 configuration.
+Each environment provisions a dedicated KMS key used to encrypt all applicable resources. S3 buckets enforce server side encryption using the environment KMS key and deny any request not using HTTPS or unencrypted uploads via bucket policy. EC2 root volumes are encrypted using the same environment KMS key with 20GB gp3 configuration. KMS key rotation is enabled with a 365-day rotation period.
+
+State files are stored in S3 with `encrypt = true` configured on the backend. On real AWS this enforces SSE at rest via the S3 backend.
 
 ### Ephemeral Resources
-The database password for `data-processor` is generated using an ephemeral resource and stored in Secrets Manager using a write-only attribute. The password is never persisted to Terraform state. The secret is encrypted with the environment KMS key.
+The database password for `data-processor` is generated using an ephemeral `random_password` resource and stored in Secrets Manager using a write-only attribute (`secret_string_wo`). The password is never written to Terraform state. The secret is encrypted with the environment KMS key.
 
-The `data-processor` instance retrieves the secret at boot via user data and writes it to `/opt/app/db.env`. The `audit-server` has no secret requirement and does not receive a secret ARN.
+The `data-processor` instance retrieves the secret at boot via user data and writes it to `/opt/app/db.env` with `600` permissions. The `audit-server` has no secret requirement and does not receive a secret ARN.
+
+Using an ephemeral resource over a standard `random_password` ensures the plaintext password never appears in state, removing a common credential exposure vector in infrastructure-as-code pipelines.
 
 ### Identity & Access
-Each EC2 instance is assigned a dedicated IAM role via an instance profile, following least privilege principles. Policy documents are rendered from template files and scoped to environment-specific resources only.
 
-The `data-processor-role` is permitted to read from the raw data bucket, write to the processed data bucket, decrypt using the environment KMS key, and retrieve the database secret. Cross-environment S3 access is explicitly denied via a `NotResource` deny statement.
+Each EC2 instance is assigned a dedicated IAM role via an instance profile. Policy documents are rendered from `templatefile()` at apply time and scoped to environment-specific resource ARNs only.
 
-The `audit-server-role` is permitted to read from both buckets and decrypt using the environment KMS key. Write and delete operations are explicitly denied across all buckets.
+| Principal | s3:GetObject raw | s3:PutObject processed | s3:GetObject processed | kms:Decrypt | kms:Manage | secretsmanager:GetSecretValue |
+|---|---|---|---|---|---|---|
+| `data-processor-role` | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ |
+| `audit-server-role` | ✓ | ✗ explicit deny | ✓ | ✓ | ✗ | ✗ |
+| `platform-admin` | ✗ explicit deny | ✗ explicit deny | ✗ explicit deny | ✗ explicit deny | ✓ | ✗ explicit deny |
 
-The `platform-admin-policy` grants KMS key management and Secrets Manager administration permissions. Direct data access via `kms:Decrypt`, `s3:GetObject`, `s3:PutObject`, and `secretsmanager:GetSecretValue` is explicitly denied. The policy is attached to the `platform-admin` IAM user.
+The KMS key policy enforces the access matrix at the key level independently of IAM policies, providing defense in depth. The root account retains full key access to prevent lockout.
 
-The KMS key policy enforces the access matrix at the key level, independently of IAM policies. The root account retains full key access to prevent lockout.
+Cross-environment S3 access is explicitly denied on `data-processor-role` via a `NotResource` deny statement covering all granted S3 actions.
 
 ### Environment Separation
 Directory-based environment separation is used instead of Terraform workspaces. Each environment has its own backend configuration, variable definitions, and state file to ensure strict isolation and prevent accidental cross-environment operations.
