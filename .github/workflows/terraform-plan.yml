@@ -1,0 +1,79 @@
+name: terraform plan
+on:
+  pull_request:
+    branches:
+        - main
+        - development
+jobs:
+  build: 
+    runs-on: rhel-sandbox
+    permissions:
+      pull-requests: write
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      TMP_TF_PLAN: /tmp/tfplan.txt
+    
+    steps:
+      - name: Checkout Repo
+        id: checkout
+        uses: actions/checkout@v6
+      
+      - name: Set TF working directory
+        id: set-tf-workdir
+        run: |
+          if [[ "${{ github.base_ref }}" == "main" ]]; then
+            echo "tf_workdir=staging" >> $GITHUB_OUTPUT
+          else
+            echo "tf_workdir=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Secret Scan
+        id: secret-scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Security Scan
+        id: security-scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: 'terraform/'
+          severity: 'HIGH,CRITICAL'
+          exit-code: 1
+
+      - name: Terraform Validate
+        id: tf-validation
+        working-directory: terraform/environments/${{ steps.set-tf-workdir.outputs.tf_workdir }}
+        run: |
+          terraform init
+          terraform validate
+
+      - name: Terraform Plan
+        id: tf-plan
+        working-directory: terraform/environments/${{ steps.set-tf-workdir.outputs.tf_workdir }}
+        run: |
+          terraform init
+          terraform plan -no-color 2>&1 | tee ${{ env.TMP_TF_PLAN }}
+          {
+            echo 'tfplan<<EOF'
+            cat ${{ env.TMP_TF_PLAN }}
+            printf '\n'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+          rm ${{ env.TMP_TF_PLAN }}
+      
+      - name: PR comment for merge review
+        id: merge-review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "${{ steps.tf-plan.outputs.tfplan }}"
+            })
+      
