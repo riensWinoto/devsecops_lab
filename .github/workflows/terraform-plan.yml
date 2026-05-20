@@ -19,6 +19,8 @@ jobs:
       - name: Checkout Repo
         id: checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set TF working directory
         id: set-tf-workdir
