@@ -8,7 +8,7 @@ on:
       - 'terraform/**'
 
 jobs:
-  build: 
+  apply: 
     runs-on: rhel-sandbox
     permissions:
       contents: read
