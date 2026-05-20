@@ -72,12 +72,15 @@ jobs:
       - name: PR comment for merge review
         id: merge-review
         uses: actions/github-script@v7
+        env:
+          TFPLAN: ${{ steps.tf-plan.outputs.tfplan }}
         with:
           script: |
+            const tfplan = process.env.TFPLAN;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: "${{ steps.tf-plan.outputs.tfplan }}"
+              body: `#### Terraform Plan\n\`\`\`\n${tfplan}\n\`\`\``
             })
       
