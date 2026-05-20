@@ -1,0 +1,63 @@
+name: terraform apply
+on:
+  push:
+    branches:
+      - main
+      - development
+    #paths:
+    #  - 'terraform/**'
+
+jobs:
+  apply: 
+    runs-on: rhel-sandbox
+    permissions:
+      contents: read
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      TMP_TF_PLAN: /tmp/tfplan.txt
+    
+    steps:
+      - name: Checkout Repo
+        id: checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      
+      - name: Set TF working directory
+        id: set-tf-workdir
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "tf_workdir=staging" >> $GITHUB_OUTPUT
+          else
+            echo "tf_workdir=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Secret Scan
+        id: secret-scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup gitleaks tmp
+        id: cleanup-gitleaks
+        run: rm -f /tmp/gitleaks.tmp
+      
+      - name: Security Scan
+        id: security-scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: 'terraform/'
+          severity: 'HIGH,CRITICAL'
+          exit-code: 1
+
+      - name: Terraform Apply
+        id: tf-papply
+        working-directory: terraform/environments/${{ steps.set-tf-workdir.outputs.tf_workdir }}
+        run: |
+          terraform init
+          terraform apply -auto-approve
