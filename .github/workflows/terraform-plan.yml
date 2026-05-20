@@ -8,6 +8,7 @@ jobs:
   build: 
     runs-on: rhel-sandbox
     permissions:
+      contents: read
       pull-requests: write
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
