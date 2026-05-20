@@ -4,8 +4,8 @@ on:
     branches:
       - main
       - development
-    paths:
-      - 'terraform/**'
+    #paths:
+    #  - 'terraform/**'
 
 jobs:
   apply: 
