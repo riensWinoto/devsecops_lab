@@ -97,6 +97,64 @@ cd terraform/environments/staging && terraform init
 
 ---
 
+## CI/CD Pipeline
+
+### Overview
+The pipeline runs on GitHub Actions with a self-hosted runner co-located on the same machine as MiniStack. Since MiniStack is only reachable at `localhost:4566`, a GitHub-hosted runner is not an option as it has no route to the local network. Terraform is invoked as a native binary on the runner rather than through a marketplace action for the same reason: container-based actions resolve `localhost` to the container, not the host, severing the connection to MiniStack.
+
+### Branching Strategy
+
+```
+feature/*  ->  development  ->  main
+                    |             |
+                   dev         staging
+```
+
+| Branch | Trigger | Action |
+|---|---|---|
+| `feature/*` | PR to `development` | Plan only |
+| `development` | Merge (push) | Apply to dev |
+| `main` | Merge (push) | Apply to staging |
+
+Code must pass dev before promoting to staging via PR from `development` to `main`.
+
+### Workflows
+
+#### terraform-plan.yml
+Triggered on pull request targeting `development` or `main`.
+
+| Stage | Tool | Fails on |
+|---|---|---|
+| Secret scanning | GitLeaks | Any secret detected |
+| IaC security scan | Trivy | HIGH or CRITICAL findings |
+| Terraform validate | terraform validate | Any validation error |
+| Terraform plan | terraform plan | Any plan error |
+
+The plan output is posted as a PR comment for review before merging. All stages must pass for the PR to be mergeable.
+
+#### terraform-apply.yml
+Triggered on push to `development` or `main`, only when files under `terraform/` change.
+
+| Stage | Tool | Fails on |
+|---|---|---|
+| Secret scanning | GitLeaks | Any secret detected |
+| IaC security scan | Trivy | HIGH or CRITICAL findings |
+| Terraform apply | terraform apply -auto-approve | Any apply error |
+
+Security scans are repeated at apply time independently of the plan workflow, plan and apply are separate workflow runs and security must be verified at both stages.
+
+### Required Secrets
+
+Configure in GitHub -> Settings -> Secrets -> Actions:
+
+| Secret | Description |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | MiniStack dummy credential |
+| `AWS_SECRET_ACCESS_KEY` | MiniStack dummy credential |
+| `AWS_REGION` | Target region (`ap-southeast-2`) |
+
+---
+
 ## Infrastructure
 
 ### Resources
