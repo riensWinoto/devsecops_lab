@@ -123,5 +123,5 @@ jobs:
           FUNCTION_URL=$(floci lambda get-function-url-config \
             --function-name ${{ env.LAMBDA_FUNC }} \
             --query 'FunctionUrl' \
-            --output text)
-          curl -f $FUNCTION_URL/health
+            --output text | sed 's/4566/4567/g' )
+          curl -f "${FUNCTION_URL}health"
