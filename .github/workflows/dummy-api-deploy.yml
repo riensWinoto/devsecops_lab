@@ -4,8 +4,8 @@ on:
     branches:
       - main
       - development
-    paths:
-      - 'dummy_api/**'
+    #paths:
+    #  - 'dummy_api/**'
 
 jobs:
   build: 
