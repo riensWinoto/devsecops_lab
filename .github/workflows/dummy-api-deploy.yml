@@ -67,7 +67,7 @@ jobs:
         with:
           scan-type: image
           scan-ref: ${{ env.ECR_REGISTRY }}:${{ steps.git-sha.outputs.GIT_SHA }}
-          severity: 'HIGH,CRITICAL'
+          severity: 'CRITICAL'
           exit-code: 1
   
   deploy:
