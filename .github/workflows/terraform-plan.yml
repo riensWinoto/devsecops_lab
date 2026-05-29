@@ -26,8 +26,10 @@ jobs:
       
       - name: Set TF working directory
         id: set-tf-workdir
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [[ "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$REF_NAME" == "main" ]]; then
             echo "tf_workdir=staging" >> $GITHUB_OUTPUT
           else
             echo "tf_workdir=dev" >> $GITHUB_OUTPUT
