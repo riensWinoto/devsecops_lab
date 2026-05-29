@@ -17,8 +17,27 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock"
     networks:
       - ministack
+
+  floci:
+    container_name: "floci"
+    image: floci/floci:latest
+    restart: unless-stopped
+    ports:
+      - "4567:4566"
+    environment:
+      - FLOCI_STORAGE_MODE=persistent
+      - FLOCI_STORAGE_PERSISTENT_PATH=/app/data
+      - FLOCI_SERVICES_DOCKER_NETWORK=devsecops_lab_floci
+    volumes:
+      - "floci:/app/data"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - floci
+
 volumes:
   ministack:
+  floci:
 
 networks:
   ministack:
+  floci:
