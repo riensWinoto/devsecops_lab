@@ -1,5 +1,5 @@
 # devsecops_lab
-End-to-end DevSecOps lab covering infrastructure as code, security gates, and application deployment using MiniStack as the local AWS emulator.
+End-to-end DevSecOps lab covering infrastructure as code, security gates, and application deployment. Each component represents a distinct discipline: infrastructure provisioning, application development, containerization, and security gates integrated across the delivery pipeline.
 
 ---
 
@@ -36,6 +36,17 @@ terraform/
     ├── data-processor-role.json.tpl
     ├── kms-key.json.tpl
     └── platform-admin-user.json.tpl
+
+dummy_api/
+├── cmd/
+│   └── main.go               # Lambda entrypoint — Chi router with Lambda adapter
+├── handler/
+│   ├── health.go             # Health check endpoint
+│   ├── negative_response.go  # Shared error response helpers
+│   └── tasks.go              # Task creation and retrieval handlers
+├── Dockerfile
+├── go.mod
+└── go.sum
 ```
 
 Each environment directory is self-contained with its own backend, variables, and state. Modules are environment-agnostic and accept an `environment` variable to scope all resource names and tags. Policy documents live in `terraform/policies/` as template files rendered at apply time via `templatefile()`.
@@ -86,6 +97,14 @@ docker compose up -d
 Once MiniStack is running, the state bucket must be created before initializing Terraform:
 ```bash
 minstack s3 mb s3://devsecops-lab
+```
+
+### Floci
+Floci runs alongside MiniStack and handles Lambda execution and ECR. Unlike MiniStack which emulates AWS services at the API level, Floci spins up real Docker containers for Lambda invocations enabling actual function execution.
+
+The following alias is used to interact with Floci using the AWS CLI:
+```bash
+alias floci='docker run --network host -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_REGION=ap-southeast-2 --rm amazon/aws-cli --endpoint-url=http://localhost:4567'
 ```
 
 ### Terraform
@@ -141,7 +160,22 @@ Triggered on push to `development` or `main`, only when files under `terraform/`
 | IaC security scan | Trivy | HIGH or CRITICAL findings |
 | Terraform apply | terraform apply -auto-approve | Any apply error |
 
-Security scans are repeated at apply time independently of the plan workflow, plan and apply are separate workflow runs and security must be verified at both stages.
+Security scans are repeated at apply time independently of the plan workflow. Plan and apply are separate workflow runs and security must be verified at both stages.
+
+#### dummy-api-deploy.yml
+Triggered on push to `development` or `main`, only when files under `dummy_api/` change.
+
+| Stage | Tool | Fails on |
+|---|---|---|
+| Secret scanning | GitLeaks | Any secret detected |
+| SAST | Semgrep | Any finding matching configured rules |
+| Container image build | Docker | Any build error |
+| Container security scan | Trivy | CRITICAL findings |
+| Container image push | Docker | Any push error |
+| Lambda deploy | AWS CLI via Floci | Any deployment error |
+| Smoke test | curl | Non-200 response from health endpoint |
+
+The IaC and application pipelines are intentionally separate. Infrastructure changes and application changes trigger independent pipelines, reflecting real-world separation of concerns between platform and development teams.
 
 ### Required Secrets
 
@@ -149,9 +183,11 @@ Configure in GitHub -> Settings -> Secrets -> Actions:
 
 | Secret | Description |
 |---|---|
-| `AWS_ACCESS_KEY_ID` | MiniStack dummy credential |
-| `AWS_SECRET_ACCESS_KEY` | MiniStack dummy credential |
-| `AWS_REGION` | Target region (`ap-southeast-2`) |
+| `AWS_ACCESS_KEY_ID` | MiniStack and Floci dummy credential |
+| `AWS_SECRET_ACCESS_KEY` | MiniStack and Floci dummy credential |
+| `AWS_DEFAULT_REGION` | Target region (`ap-southeast-2`) |
+| `DOCKERHUB_USERNAME` | Docker Hub username for base image pulls |
+| `DOCKERHUB_TOKEN` | Docker Hub access token |
 
 ---
 
@@ -197,7 +233,7 @@ The `data-processor` instance retrieves the secret at boot via user data and wri
 
 Using an ephemeral resource over a standard `random_password` ensures the plaintext password never appears in state, removing a common credential exposure vector in infrastructure-as-code pipelines.
 
-### Identity & Access
+### Identity and Access
 
 Each EC2 instance is assigned a dedicated IAM role via an instance profile. Policy documents are rendered from `templatefile()` at apply time and scoped to environment-specific resource ARNs only.
 
@@ -230,3 +266,29 @@ terraform destroy
 ```
 
 Both environments are independent and can be provisioned or destroyed separately.
+
+---
+
+## Application
+
+### Overview
+A lightweight HTTP API built with Go demonstrating concurrent task management using mutex-protected in-memory storage. The application is deployed to AWS Lambda via Floci using a container image, with requests routed through a Lambda Function URL. Storage is intentionally in-memory for demonstration purposes.
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Returns service health status |
+| `POST` | `/tasks` | Creates a new task, returns UUID and status |
+| `GET` | `/tasks/{id}` | Retrieves a task by UUID |
+
+### Architecture
+The application uses the Chi router with `aws-lambda-go-api-proxy` to bridge standard Go HTTP handlers to the Lambda runtime. This allows the application to be written as a standard HTTP server without tight coupling to Lambda-specific event types.
+
+Concurrent access to the in-memory task store is managed via `sync.RWMutex`, allowing multiple readers or a single writer at any time.
+
+### Lambda Emulator
+Floci is used as the local Lambda emulator. Unlike MiniStack, Floci spins up a real Docker container for each Lambda invocation, enabling actual Go binary execution. The container image is built from a distroless base, pushed to Floci ECR on port `5100`, and deployed to Lambda via the Floci endpoint on port `4567`.
+
+### Local Emulator Note
+Both MiniStack and Floci are local AWS emulators used for development and portfolio demonstration purposes. MiniStack handles IaC resource provisioning. Floci handles Lambda execution and ECR. Neither replaces real AWS in production but together they provide a cost-free, fully functional local DevSecOps environment.
