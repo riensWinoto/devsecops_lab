@@ -114,8 +114,9 @@ jobs:
             --function-name ${{ env.LAMBDA_FUNC }} \
             --auth-type NONE || true
       
-      - name: Smoke Test
-        id: smoke-test
+      - name: Smoke Test and DAST
+        id: smoke-test-dast
+        working-directory: dummy_api
         run: |
           shopt -s expand_aliases
           alias floci='docker run --rm --network host -e AWS_ACCESS_KEY_ID=${{ env.AWS_ACCESS_KEY_ID }} -e AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }} -e AWS_DEFAULT_REGION=${{ env.AWS_DEFAULT_REGION }} amazon/aws-cli --endpoint-url=http://localhost:4567'
@@ -125,3 +126,22 @@ jobs:
             --query 'FunctionUrl' \
             --output text | sed 's/4566/4567/g' )
           curl -f "${FUNCTION_URL}health"
+
+          docker run --rm --network host -v $(pwd):/zap/wrk \
+          zaproxy/zap-stable zap-api-scan.py -t /zap/wrk/openapi.yml -f openapi -O "$FUNCTION_URL" \
+          -r zap-report.html -J zap-report.json || true
+
+          HIGH_COUNT=$(jq '[.site[].alerts[] | select(.riskcode == "3")] | length' zap-report.json)
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "High risk findings detected: $HIGH_COUNT"
+            exit 1
+          fi
+          
+      - name: Upload ZAP Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: |
+            dummy_api/zap-report.html
+            dummy_api/zap-report.json
