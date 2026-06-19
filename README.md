@@ -46,7 +46,8 @@ dummy_api/
 │   └── tasks.go              # Task creation and retrieval handlers
 ├── Dockerfile
 ├── go.mod
-└── go.sum
+├── go.sum
+└── openapi.yml                # OpenAPI spec used for the ZAP API scan
 ```
 
 Each environment directory is self-contained with its own backend, variables, and state. Modules are environment-agnostic and accept an `environment` variable to scope all resource names and tags. Policy documents live in `terraform/policies/` as template files rendered at apply time via `templatefile()`.
@@ -174,6 +175,7 @@ Triggered on push to `development` or `main`, only when files under `dummy_api/`
 | Container image push | Docker | Any push error |
 | Lambda deploy | AWS CLI via Floci | Any deployment error |
 | Smoke test | curl | Non-200 response from health endpoint |
+| DAST scan | OWASP ZAP | HIGH risk findings |
 
 The IaC and application pipelines are intentionally separate. Infrastructure changes and application changes trigger independent pipelines, reflecting real-world separation of concerns between platform and development teams.
 
@@ -289,6 +291,21 @@ Concurrent access to the in-memory task store is managed via `sync.RWMutex`, all
 
 ### Lambda Emulator
 Floci is used as the local Lambda emulator. Unlike MiniStack, Floci spins up a real Docker container for each Lambda invocation, enabling actual Go binary execution. The container image is built from a distroless base, pushed to Floci ECR on port `5100`, and deployed to Lambda via the Floci endpoint on port `4567`.
+
+### DAST Scanning
+The dummy API is scanned with OWASP ZAP (`zap-api-scan.py`) against the deployed Lambda Function URL rather than a locally running instance of the application. This is possible because Floci spins up a real container for each Lambda invocation, and the Function URL is configured with `AUTH_NONE`, giving ZAP a genuine HTTP endpoint to attack rather than a mocked one. The scan therefore exercises the same artifact that gets deployed, not a substitute. On real AWS, Function URLs are HTTPS only; the local Floci emulation serves this over plain HTTP since it does not terminate TLS.
+
+Scanning is driven by a static OpenAPI spec (`dummy_api/openapi.yml`) rather than ZAP's built in spider. The API returns JSON with no HTML links or forms for a crawler to follow, so discovery based scanning finds little beyond `GET /health`. The spec explicitly defines all three endpoints, including request and response schemas, and is the only way ZAP discovers and exercises `POST /tasks` and `GET /tasks/{id}`.
+
+The Function URL is only known after deployment and changes whenever the function is recreated, so the spec's `servers.url` is overridden at scan time with the `-O` flag rather than committing a generated URL to the spec file. This keeps the spec a stable, version controlled artifact while the pipeline supplies the dynamic target at runtime. The scan itself runs with `--network host`, since the Function URL resolves under a `.localhost` subdomain that ZAP's container cannot otherwise reach from inside its own network namespace.
+
+#### Known Limitation: Path Parameter Coverage
+`GET /tasks/{id}` is tested using a placeholder UUID supplied as the spec's parameter example, since `zap-api-scan.py` has no mechanism to chain requests. It cannot capture a UUID from a `POST /tasks` response and reuse it in a subsequent `GET`. As a result the endpoint is always exercised with a value that does not correspond to a real task and always returns a 404.
+
+This is an acceptable gap for the current implementation. Tasks are stored in memory, and the 404 and 200 code paths are functionally identical: both serialize a struct to JSON with no branching logic in between, so a successful lookup carries no additional attack surface that the 404 path does not already cover. A database backed implementation would not have this luxury, since the 200 path would execute a real query while the 404 path returns early without touching the data layer. In that case the correct approach is pre-seeding known test data before the scan runs and injecting a real ID into the spec, so ZAP exercises the code path that actually matters.
+
+#### Pipeline Gating
+The scan produces both HTML and JSON reports, which are uploaded as workflow artifacts regardless of outcome so failed runs remain inspectable. The pipeline only fails the build on HIGH risk findings (`riskcode: 3`); Low, Medium, and Informational findings are recorded in the report but do not block deployment. This mirrors the threshold already applied to the Trivy container scan in the same workflow, where only CRITICAL severity is treated as a blocking failure.
 
 ### Local Emulator Note
 Both MiniStack and Floci are local AWS emulators used for development and portfolio demonstration purposes. MiniStack handles IaC resource provisioning. Floci handles Lambda execution and ECR. Neither replaces real AWS in production but together they provide a cost-free, fully functional local DevSecOps environment.
